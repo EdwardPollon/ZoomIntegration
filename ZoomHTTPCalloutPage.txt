@@ -1,0 +1,6 @@
+<apex:page standardController="Campaign" extensions="ZoomHTTPCallout" action="{!getRegistrantsByWebinarId}">
+    <apex:form >
+        <apex:inputHidden value="{!campaign.Zoom_Webinar_Id__c}"/>
+        <apex:inputHidden value="{!campaign.Name}"/>
+    </apex:form>
+</apex:page>

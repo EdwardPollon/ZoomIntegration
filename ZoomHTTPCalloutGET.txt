@@ -1,0 +1,109 @@
+public class ZoomHTTPCallout {
+
+    public Id campaignId { get; set; }
+    public Campaign campaign { get; set;}
+    public String campaignName { get; set;}
+    public String webinarId { get; set;}
+        
+    //constructor to get the Campaign record from ZoomHTTPCalloutPage
+   	public ZoomHTTPCallout(ApexPages.StandardController controller) {
+        
+    	campaign =  (Campaign)controller.getRecord();
+    	campaignId = campaign.Id;
+        campaignName = campaign.Name;
+        webinarId = campaign.Zoom_Webinar_Id__c;
+    	System.debug('The Campaign record: ' + campaign);
+        System.debug('The Webinar Id: ' + webinarId);
+            
+    	}
+    
+    public PageReference getRegistrantsByWebinarId(){
+        
+        HttpRequest req = new HttpRequest();
+        req.setHeader('Accept', 'application/json');
+        req.setHeader('Content-Type', 'application/json');
+        req.setMethod('GET');        
+        Http http = new Http();
+		
+		String baseEndpoint = 'callout:Zoom_API_Named_Credential'+'/webinars/'+webinarId+'/registrants?page_size=300';
+		String nextPageToken;
+		Integer counter = 0;
+        
+        List<JSON2ApexZoomWebinars.Registrants> registrantList = new List<JSON2ApexZoomWebinars.Registrants>();
+        
+        List<CampaignMember> existingCampaignMembersList = [SELECT ContactId, Contact.Email FROM CampaignMember WHERE CampaignId = :campaignId];
+		System.debug('Existing Campaign Members List: ' + existingCampaignMembersList);
+
+        Map<String, CampaignMember> existingCampaignMembers = new Map<String, CampaignMember>();
+        for(CampaignMember cm : existingCampaignMembersList){
+            existingCampaignMembers.put(cm.Contact.Email, cm);
+        }
+		System.debug('Existing Campaign Members Map: ' + existingCampaignMembers);
+
+        List<Contact> existingContactsList = [SELECT Id, Email FROM Contact];
+		System.debug('Existing Contacts List: ' + existingContactsList);
+
+        Map<String, Contact> existingContacts = new Map<String, Contact>();
+        for(Contact c : existingContactsList){
+            existingContacts.put(c.Email,c);
+        }
+		System.debug('Existing Contacts Map: ' + existingContacts);
+
+        List<Contact> contactsToInsert = new List<Contact>();
+        List<CampaignMember> campaignMembersToInsert = new List<CampaignMember>();
+        
+        do{
+            req.setEndpoint(baseEndpoint + (String.isNotBlank(nextPageToken) ? '&next_page_token=' + nextPageToken : ''));
+            
+            HTTPResponse res = http.send(req);
+            JSON2ApexZoomWebinars obj = JSON2ApexZoomWebinars.parse(res.getBody());
+        	System.debug('Total Registrants: ' + obj.total_records);
+            if(res.getStatusCode() == 200){
+        		for(JSON2ApexZoomWebinars.Registrants registrant : obj.registrants){
+                	if(!existingContacts.containsKey(registrant.email.toLowerCase())){
+						Contact con = new Contact();
+                        con.FirstName = registrant.first_name;
+                        if(String.isBlank(registrant.last_name)){
+                            con.LastName = 'N/A';
+                        }else{
+                            con.LastName = registrant.last_name;
+                        }
+                    	con.Email = registrant.email;
+                        con.MobilePhone = registrant.phone;
+                    	con.LeadSource = 'Zoom Webinar';
+                        if(campaignName.contains('Investor')){
+                            con.Investor_Relations__c = true;
+                        }
+                    	contactsToInsert.add(con);
+                    	existingContacts.put(con.Email.toLowerCase(),con);
+                	}
+                	if(!existingCampaignMembers.containsKey(registrant.email.toLowerCase())){
+                    	registrantList.add(registrant);
+                	}
+        		}
+            }           
+            nextPageToken = obj.next_page_token;
+            counter++;
+        } while(String.isNotBlank(nextPageToken));
+        
+        System.debug('Contacts To Insert: ' + contactsToInsert);        
+        insert contactsToInsert;
+        
+        for(JSON2ApexZoomWebinars.Registrants registrant : registrantList){
+            CampaignMember cm = new CampaignMember();
+            cm.ContactId = existingContacts.get(registrant.email.toLowerCase()).Id;
+            cm.Status = registrant.status;
+            cm.CampaignId = campaignId;
+            campaignMembersToInsert.add(cm);            
+        }
+        
+        System.debug('Campaign Members To Insert: ' + campaignMembersToInsert);
+        insert campaignMembersToInsert;
+        
+        System.debug('Number of API calls made: ' + counter);  
+
+        PageReference pageRef = new PageReference('/'+campaignId);
+        pageRef.setRedirect(true);
+        return pageRef; //Returns to the Campaign page
+	}
+}

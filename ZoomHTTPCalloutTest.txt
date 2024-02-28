@@ -1,0 +1,23 @@
+@isTest
+public class ZoomHTTPCalloutTest {
+    static testMethod void zoomCalloutTest(){
+        Campaign c = new Campaign(
+        	Name = 'Test Investor Campaign',
+        	Zoom_Webinar_Id__c = '88297919345');
+        insert c;
+
+        Test.startTest();
+        
+        PageReference pageRef = Page.ZoomHTTPCalloutPage;
+        Test.setCurrentPage(pageRef);
+        pageRef.getParameters().put('id', c.Id);
+        
+        ApexPages.StandardController sc = new ApexPages.StandardController(c);
+        ZoomHTTPCallout myController = new ZoomHTTPCallout(sc);
+        
+        Test.setMock(HttpCalloutMock.class, new MockHttpResponseGenerator());
+        myController.getRegistrantsByWebinarId();
+        
+        Test.stopTest();
+    }
+}
